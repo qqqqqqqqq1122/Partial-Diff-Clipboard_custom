@@ -1,0 +1,271 @@
+{
+	"name": "partial-diff-clipboard",
+	"displayName": "Partial Diff Clipboard_custom",
+	"description": "Custom build of Partial Diff Clipboard. Compare text selections within a file, across files, or against clipboard content. The first copied/selected text is shown on the right, with diff titles that always match the pane order.",
+	"version": "1.0.2",
+	"publisher": "heel",
+	"engines": {
+		"vscode": "^1.99.0"
+	},
+	"categories": [
+		"Other",
+		"Formatters"
+	],
+	"keywords": [
+		"diff",
+		"compare",
+		"clipboard",
+		"text comparison"
+	],
+	"icon": "icon.png",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/qqqqqqqqq1122/Partial-Diff-Clipboard_custom.git"
+	},
+	"homepage": "https://github.com/qqqqqqqqq1122/Partial-Diff-Clipboard_custom",
+	"bugs": {
+		"url": "https://github.com/qqqqqqqqq1122/Partial-Diff-Clipboard_custom/issues"
+	},
+	"main": "./dist/extension",
+	"activationEvents": [
+		"onStartupFinished"
+	],
+	"contributes": {
+		"configuration": {
+			"type": "object",
+			"title": "Partial Diff configurations",
+			"properties": {
+				"partialDiff.commandsOnContextMenu": {
+					"description": "Commands appear on the context menu. Unlisted commands will appear on the menu",
+					"type": "object",
+					"properties": {
+						"selectForCompare": {
+							"description": "Select for Compare",
+							"type": "boolean"
+						},
+						"compareWithSelected": {
+							"description": "Compare with Selected",
+							"type": "boolean"
+						},
+						"compareWithClipboard": {
+							"description": "Compare with Clipboard",
+							"type": "boolean"
+						},
+						"compareVisibleEditors": {
+							"description": "Compare Visible Editors",
+							"type": "boolean"
+						},
+						"compareOpenEditors": {
+							"description": "Compare Open Editors",
+							"type": "boolean"
+						},
+						"changeDiffNormalization": {
+							"description": "Change Diff Normalization",
+							"type": "boolean"
+						}
+					},
+					"default": {
+						"selectForCompare": true,
+						"compareWithSelected": true,
+						"compareWithClipboard": true,
+						"compareVisibleEditors": true,
+						"compareOpenEditors": true,
+						"changeDiffNormalization": true
+					},
+					"additionalProperties": false
+				},
+				"partialDiff.preComparisonTextNormalizationRules": {
+					"description": "Rules to normalize texts before taking a diff",
+					"type": "array",
+					"items": {
+						"type": "object",
+						"properties": {
+							"name": {
+								"type": "string"
+							},
+							"match": {
+								"type": "string"
+							},
+							"replaceWith": {
+								"oneOf": [
+									{
+										"type": "string"
+									},
+									{
+										"type": "object",
+										"properties": {
+											"letterCase": {
+												"enum": [
+													"upper",
+													"lower"
+												]
+											}
+										},
+										"required": [
+											"letterCase"
+										]
+									}
+								]
+							},
+							"enableOnStart": {
+								"type": "boolean",
+								"default": true
+							}
+						},
+						"required": [
+							"match",
+							"replaceWith"
+						]
+					},
+					"default": [
+						{
+							"name": "Tabs to spaces",
+							"match": "\\t",
+							"replaceWith": " ",
+							"enableOnStart": false
+						},
+						{
+							"name": "Normalize CRLF/CR to LF",
+							"match": "\\r\\n?",
+							"replaceWith": "\n",
+							"enableOnStart": false
+						},
+						{
+							"name": "Trim trailing whitespace",
+							"match": "[ \\t]+(?=\\n|$)",
+							"replaceWith": "",
+							"enableOnStart": false
+						},
+						{
+							"name": "Collapse 3+ blank lines",
+							"match": "\\n{3,}",
+							"replaceWith": "\n\n",
+							"enableOnStart": false
+						},
+						{
+							"name": "Remove leading indentation",
+							"match": "(^|\\n)[ \\t]+",
+							"replaceWith": "$1",
+							"enableOnStart": false
+						},
+						{
+							"name": "Collapse repeated spaces/tabs",
+							"match": "[ \\t]{2,}",
+							"replaceWith": " ",
+							"enableOnStart": false
+						},
+						{
+							"name": "One space after comma",
+							"match": ", *([^,\\n]+)",
+							"replaceWith": ", $1",
+							"enableOnStart": false
+						},
+						{
+							"name": "Lowercase all text",
+							"match": "[\\s\\S]+",
+							"replaceWith": {
+								"letterCase": "lower"
+							},
+							"enableOnStart": false
+						},
+						{
+							"name": "Mask UUIDs",
+							"match": "\\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}\\b",
+							"replaceWith": "<UUID>",
+							"enableOnStart": false
+						},
+						{
+							"name": "Mask ISO-8601 timestamps",
+							"match": "\\b\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:\\d{2})\\b",
+							"replaceWith": "<TIMESTAMP>",
+							"enableOnStart": false
+						},
+						{
+							"name": "Mask long numeric IDs",
+							"match": "\\b\\d{6,}\\b",
+							"replaceWith": "<NUM>",
+							"enableOnStart": false
+						}
+					]
+				},
+				"partialDiff.enableEditableDiffs": {
+					"description": "Enable editing diff. Changes are applied back to source documents.",
+					"type": "boolean",
+					"default": true
+				},
+				"partialDiff.firstTextOnRight": {
+					"description": "Show the first comparison text on the right side of the diff: the first selection ('Select for Compare') or the clipboard content ('Compare with Clipboard'). The second text (the current selection) is shown on the left. Set to false for the standard original-on-left layout.",
+					"type": "boolean",
+					"default": true
+				}
+			}
+		},
+		"commands": [
+			{
+				"command": "extension.partialDiff.selectForCompare",
+				"title": "Select for Compare",
+				"category": "PartialDiff"
+			},
+			{
+				"command": "extension.partialDiff.compareWithSelected",
+				"title": "Compare with Selected",
+				"category": "PartialDiff"
+			},
+			{
+				"command": "extension.partialDiff.compareWithClipboard",
+				"title": "Compare with Clipboard",
+				"category": "PartialDiff"
+			},
+			{
+				"command": "extension.partialDiff.compareVisibleEditors",
+				"title": "Compare Visible Editors",
+				"category": "PartialDiff"
+			},
+			{
+				"command": "extension.partialDiff.compareOpenEditors",
+				"title": "Compare Open Editors",
+				"category": "PartialDiff"
+			},
+			{
+				"command": "extension.partialDiff.changeDiffNormalization",
+				"title": "Change Diff Normalization",
+				"category": "PartialDiff"
+			}
+		],
+		"menus": {
+			"editor/context": [
+				{
+					"command": "extension.partialDiff.selectForCompare",
+					"group": "2_partialdiff@1",
+					"when": "editorTextFocus && !config.partialDiff.hideCommandsOnContextMenu && config.partialDiff.commandsOnContextMenu.selectForCompare"
+				},
+				{
+					"command": "extension.partialDiff.compareWithSelected",
+					"group": "2_partialdiff@2",
+					"when": "editorTextFocus && !config.partialDiff.hideCommandsOnContextMenu && config.partialDiff.commandsOnContextMenu.compareWithSelected && partialDiff.hasSelection1"
+				},
+				{
+					"command": "extension.partialDiff.compareWithClipboard",
+					"group": "2_partialdiff@3",
+					"when": "editorTextFocus && editorHasSelection && !config.partialDiff.hideCommandsOnContextMenu && config.partialDiff.commandsOnContextMenu.compareWithClipboard && partialDiff.clipboardHasText"
+				},
+				{
+					"command": "extension.partialDiff.compareVisibleEditors",
+					"group": "2_partialdiff@4",
+					"when": "editorTextFocus && !config.partialDiff.hideCommandsOnContextMenu && config.partialDiff.commandsOnContextMenu.compareVisibleEditors && partialDiff.hasTwoVisibleEditors"
+				},
+				{
+					"command": "extension.partialDiff.compareOpenEditors",
+					"group": "2_partialdiff@5",
+					"when": "editorTextFocus && !config.partialDiff.hideCommandsOnContextMenu && config.partialDiff.commandsOnContextMenu.compareOpenEditors && partialDiff.hasTwoOpenEditors"
+				},
+				{
+					"command": "extension.partialDiff.changeDiffNormalization",
+					"group": "2_partialdiff@6",
+					"when": "editorTextFocus && !config.partialDiff.hideCommandsOnContextMenu && config.partialDiff.commandsOnContextMenu.changeDiffNormalization"
+				}
+			]
+		}
+	}
+}
