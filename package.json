@@ -1,8 +1,8 @@
 {
 	"name": "partial-diff-clipboard",
 	"displayName": "Partial Diff Clipboard_custom",
-	"description": "Custom build of Partial Diff Clipboard. Compare text selections within a file, across files, or against clipboard content. The first copied/selected text is shown on the right, with diff titles that always match the pane order.",
-	"version": "1.0.2",
+	"description": "Custom build of Partial Diff Clipboard. Compare text selections within a file, across files, or against clipboard content. A status bar button switches whether the first copied/selected text goes on the right or left, remembers the choice, and keeps diff titles aligned with the panes.",
+	"version": "1.0.3",
 	"publisher": "heel",
 	"engines": {
 		"vscode": "^1.99.0"
@@ -195,7 +195,7 @@
 					"default": true
 				},
 				"partialDiff.firstTextOnRight": {
-					"description": "Show the first comparison text on the right side of the diff: the first selection ('Select for Compare') or the clipboard content ('Compare with Clipboard'). The second text (the current selection) is shown on the left. Set to false for the standard original-on-left layout.",
+					"description": "Show the first comparison text on the right side of the diff: the first selection ('Select for Compare') or the clipboard content ('Compare with Clipboard'). The second text (the current selection) is shown on the left. Toggle it with the status bar button or the diff editor title button; set to false for the standard original-on-left layout.",
 					"type": "boolean",
 					"default": true
 				}
@@ -231,9 +231,22 @@
 				"command": "extension.partialDiff.changeDiffNormalization",
 				"title": "Change Diff Normalization",
 				"category": "PartialDiff"
+			},
+			{
+				"command": "extension.partialDiff.toggleSideOrder",
+				"title": "切换新旧方向 (Toggle Side Order)",
+				"category": "PartialDiff",
+				"icon": "$(arrow-swap)"
 			}
 		],
 		"menus": {
+			"editor/title": [
+				{
+					"command": "extension.partialDiff.toggleSideOrder",
+					"group": "navigation@50",
+					"when": "isInDiffEditor && partialDiff.hasOpenDiff"
+				}
+			],
 			"editor/context": [
 				{
 					"command": "extension.partialDiff.selectForCompare",

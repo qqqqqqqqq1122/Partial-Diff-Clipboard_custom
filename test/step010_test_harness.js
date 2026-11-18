@@ -97,6 +97,13 @@ const state = {
 	sourceDocuments: {},
 	textDocListeners: [],
 	appliedEdits: [],
+	configListeners: [],
+	tabsListeners: [],
+	activeEditorListeners: [],
+	statusMessages: [],
+	statusBar: null,
+	globalState: {},
+	failConfigUpdates: false,
 	config: {
 		partialDiff: {
 			enableEditableDiffs: false,
@@ -132,7 +139,22 @@ const workspace = {
 			get(key) {
 				return section ? (state.config[section] || {})[key] : state.config.flat[key];
 			},
-			update(key, value) { state.config.flat[key] = value; return Promise.resolve(); },
+			inspect() {
+				// Simulate the configuration key not being registered yet.
+				return undefined;
+			},
+			update(key, value) {
+				if (state.failConfigUpdates && section === 'partialDiff' && key === 'firstTextOnRight') {
+					return Promise.reject(new Error('ERROR_UNKNOWN_KEY'));
+				}
+				if (section) {
+					state.config[section] = state.config[section] || {};
+					state.config[section][key] = value;
+				} else {
+					state.config.flat[key] = value;
+				}
+				return Promise.resolve();
+			},
 		};
 	},
 	registerTextDocumentContentProvider(scheme, provider) {
@@ -145,6 +167,7 @@ const workspace = {
 	},
 	onDidChangeTextDocument(cb) { state.textDocListeners.push(cb); return { dispose() {} }; },
 	onDidCloseTextDocument() { return { dispose() {} }; },
+	onDidChangeConfiguration(cb) { state.configListeners.push(cb); return { dispose() {} }; },
 	applyEdit(edit) { state.appliedEdits.push(edit); return Promise.resolve(true); },
 	fs: {
 		createDirectory(uri) { return Promise.resolve(state.fsProviders[uri.scheme].createDirectory(uri)); },
@@ -169,14 +192,31 @@ const windowMock = {
 	visibleTextEditors: [],
 	tabGroups: {
 		all: [],
-		onDidChangeTabs() { return { dispose() {} }; },
+		activeTabGroup: { activeTab: undefined },
+		onDidChangeTabs(cb) { state.tabsListeners.push(cb); return { dispose() {} }; },
 		close() { return Promise.resolve(true); },
 	},
 	onDidChangeWindowState() { return { dispose() {} }; },
 	onDidChangeVisibleTextEditors() { return { dispose() {} }; },
 	onDidChangeTextEditorSelection() { return { dispose() {} }; },
+	onDidChangeActiveTextEditor(cb) { state.activeEditorListeners.push(cb); return { dispose() {} }; },
+	createStatusBarItem() {
+		const item = {
+			text: '',
+			tooltip: '',
+			command: '',
+			visible: false,
+			show() { this.visible = true; },
+			hide() { this.visible = false; },
+			dispose() {},
+		};
+		state.statusBar = item;
+		return item;
+	},
+	setStatusBarMessage(message) { state.statusMessages.push(message); return { dispose() {} }; },
 	showInformationMessage(msg) { state.messages.push(msg); return Promise.resolve(undefined); },
 	showWarningMessage(msg) { state.messages.push(msg); return Promise.resolve(undefined); },
+	showErrorMessage(msg) { state.messages.push(msg); return Promise.resolve(undefined); },
 	showQuickPick(items) { return Promise.resolve(items.filter((i) => i.picked)); },
 	showTextDocument() { return Promise.resolve(undefined); },
 };
@@ -197,6 +237,7 @@ const vscodeMock = {
 	FilePermission: { Readonly: 1 },
 	FileSystemError,
 	ConfigurationTarget: { Global: 1, Workspace: 2, WorkspaceFolder: 3 },
+	StatusBarAlignment: { Left: 1, Right: 2 },
 };
 
 // ---- load extension ----------------------------------------------------
@@ -242,7 +283,65 @@ function check(label, actual, expected) {
 function checkTrue(label, actual) { check(label, !!actual, true); }
 
 (async function main() {
-	extension.activate({ subscriptions: [] });
+	const extensionContext = {
+		subscriptions: [],
+		globalState: {
+			get(key) { return state.globalState[key]; },
+			update(key, value) {
+				if (value === undefined) { delete state.globalState[key]; }
+				else { state.globalState[key] = value; }
+				return Promise.resolve();
+			},
+		},
+	};
+	extension.activate(extensionContext);
+
+	// ---------- Test W0: toggle button is present and reads the preference ----------
+	checkTrue('W0 status bar button created', state.statusBar !== null);
+	check('W0 initial status text', state.statusBar.text, '$(arrow-swap) 旧→右');
+	check('W0 status bar command', state.statusBar.command, 'extension.partialDiff.toggleSideOrder');
+	checkTrue('W0 status bar visible', state.statusBar.visible);
+
+	// ---------- Test W1: toggle persists to global settings ----------
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('W1 toggle writes false', state.config.partialDiff.firstTextOnRight, false);
+	check('W1 status text after toggle', state.statusBar.text, '$(arrow-swap) 旧→左');
+	checkTrue('W1 status message shown', state.statusMessages.length > 0);
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('W1 toggle writes true', state.config.partialDiff.firstTextOnRight, true);
+	check('W1 status text restored', state.statusBar.text, '$(arrow-swap) 旧→右');
+	check('W1 toggle remembered in globalState', state.globalState['partialDiff.firstTextOnRight'], true);
+
+	// A successful setting write fires onDidChangeConfiguration in VS Code;
+	// simulate that so the explicit setting takes precedence over the memory.
+	state.configListeners.forEach((cb) => cb({ affectsConfiguration: (key) => key === 'partialDiff.firstTextOnRight' }));
+	check('W1 explicit setting clears the memory override', globalThis.__partialDiffFirstTextOnRight, undefined);
+
+	// ---------- Test W2: diff title button context follows open PartialDiff tabs ----------
+	windowMock.tabGroups.all = [{
+		tabs: [{
+			input: {
+				original: Uri.parse('partialdiff:text/reg1'),
+				modified: Uri.parse('partialdiff:text/reg2'),
+			},
+		}],
+	}];
+	state.tabsListeners.forEach((cb) => cb({ opened: [], closed: [], changed: [] }));
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	check('W2 context hasOpenDiff on open', state.contexts['partialDiff.hasOpenDiff'], true);
+
+	windowMock.tabGroups.all = [];
+	state.tabsListeners.forEach((cb) => cb({ opened: [], closed: [], changed: [] }));
+	await new Promise((resolve) => setTimeout(resolve, 20));
+	check('W2 context hasOpenDiff on close', state.contexts['partialDiff.hasOpenDiff'], false);
+
+	// ---------- Test W3: external setting changes refresh the button ----------
+	state.config.partialDiff.firstTextOnRight = false;
+	state.configListeners.forEach((cb) => cb({ affectsConfiguration: (key) => key === 'partialDiff.firstTextOnRight' }));
+	check('W3 status text follows external setting', state.statusBar.text, '$(arrow-swap) 旧→左');
+	state.config.partialDiff.firstTextOnRight = true;
+	state.configListeners.forEach((cb) => cb({ affectsConfiguration: (key) => key === 'partialDiff.firstTextOnRight' }));
+	check('W3 status text restored', state.statusBar.text, '$(arrow-swap) 旧→右');
 
 	// ---------- Test A: Select for Compare -> Compare with Selected ----------
 	const first = makeEditor('first.txt', 'first text');
@@ -373,6 +472,33 @@ function checkTrue(label, actual) { check(label, !!actual, true); }
 		check('H apply-back targets the first source', edit.uri.toString(), 'file:///first.txt');
 		check('H apply-back text', edit.text, 'EDITED FIRST');
 	}
+
+	// ---------- Test W4: memory still works when the setting key is rejected ----------
+	// This mirrors the real state until VS Code fully restarts and registers the
+	// new configuration key: config.update throws ERROR_UNKNOWN_KEY.
+	state.failConfigUpdates = true;
+	const settingBefore = state.config.partialDiff.firstTextOnRight;
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('W4 rejected setting write falls back to memory', state.globalState['partialDiff.firstTextOnRight'], false);
+	check('W4 status text follows memory', state.statusBar.text, '$(arrow-swap) 旧→左');
+	check('W4 setting unchanged after rejected write', state.config.partialDiff.firstTextOnRight, settingBefore);
+	checkTrue('W4 memory message shown', state.statusMessages.some((message) => message.includes('已记住')));
+
+	// The next comparison must honor the memory even though the setting is stale.
+	state.executeCalls.length = 0;
+	windowMock.visibleTextEditors = [first, second];
+	await invoke('extension.partialDiff.selectForCompare', first);
+	await invoke('extension.partialDiff.compareWithSelected', second);
+	const w4call = lastCall('_workbench.diff');
+	const w4fs = state.fsProviders['partialdiff-editable'];
+	check('W4 core uses memory: left holds the first text', w4fs.readFile(w4call[1]).toString('utf8'), 'first text');
+	check('W4 core uses memory: right holds the second text', w4fs.readFile(w4call[2]).toString('utf8'), 'second text');
+	check('W4 core uses memory: title order', w4call[3], 'first.txt (l.1) ↔ second.txt (l.1)');
+
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('W4 toggle back stored in memory', state.globalState['partialDiff.firstTextOnRight'], true);
+	check('W4 status restored', state.statusBar.text, '$(arrow-swap) 旧→右');
+	state.failConfigUpdates = false;
 
 	console.log('');
 	if (failures === 0) {

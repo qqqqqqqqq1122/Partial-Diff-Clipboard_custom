@@ -1,11 +1,13 @@
 # Revision History
 
-- 2026-11-18 10:22:06 -- 首次公开：修复 editable diff 左右栏与标题顺序不一致；新增 `partialDiff.firstTextOnRight`；发布 1.0.2 自定义 VSIX；加入 step010 行为回归脚本。
+- 2026-11-18 10:53:50 -- 加固 1.0.3：配置键尚未注册、设置写入被拒绝时，按钮改用扩展 `globalState` 记忆并驱动核心；同步更新 step010 测试至 59 项。
+- 2026-11-18 10:50:26 -- 发布 1.0.3：新增状态栏按钮与 diff 标题栏按钮，一键切换“旧/新”左右方向并持久保存；新增 `extension.partialDiff.toggleSideOrder` 命令；外层入口改为 `dist/extension.js`，核心 bundle 改为 `dist/extension-core.js`。
 - 2026-11-18 10:25:09 -- 补充快捷键绑定说明：扩展本身不贡献快捷键，`Alt+C` 需在 `keybindings.json` 中自行绑定。
+- 2026-11-18 10:22:06 -- 首次公开：修复 editable diff 左右栏与标题顺序不一致；新增 `partialDiff.firstTextOnRight`；发布 1.0.2 自定义 VSIX；加入 step010 行为回归脚本。
 
 # Partial Diff Clipboard_custom
 
-VS Code 扩展 **Partial Diff Clipboard** 的自定义构建版（v1.0.2），用于比较同一文件内的两段选区、不同文件/编辑器中的选区，或当前选区与剪贴板内容。
+VS Code 扩展 **Partial Diff Clipboard** 的自定义构建版（v1.0.3），用于比较同一文件内的两段选区、不同文件/编辑器中的选区，或当前选区与剪贴板内容。
 
 本构建重点解决两个问题：
 
@@ -33,6 +35,21 @@ VS Code 扩展 **Partial Diff Clipboard** 的自定义构建版（v1.0.2），�
 
 Editable diff（`partialDiff.enableEditableDiffs`，默认开启）下，编辑任意一侧都会写回对应源文件的选区；剪贴板一侧保持只读。
 
+## 切换新旧方向（按钮）
+
+提供三种切换入口，效果相同，都会写入用户设置 `partialDiff.firstTextOnRight`（`ConfigurationTarget.Global`），重启后保留：
+
+1. **状态栏按钮**：VS Code 右下角常驻 `$(arrow-swap) 旧→右` 或 `$(arrow-swap) 旧→左`，点击即可切换。
+2. **Diff 标题栏按钮**：打开 PartialDiff 的 diff 后，标签标题栏右侧会出现 `$(arrow-swap)` 图标按钮，点击切换。该按钮由 `package.json` 的 `editor/title` 菜单贡献，首次安装或完整重启 VS Code 后可用。
+3. **命令面板**：搜索 `PartialDiff: 切换新旧方向 (Toggle Side Order)`。
+
+切换对**下一次比较**生效；当前已打开的 diff 不会自动翻转。按钮同时影响：
+
+- `Select for Compare` → `Compare with Selected`
+- `Compare with Clipboard`
+
+`Compare Visible Editors` 和 `Compare Open Editors` 保持物理左右/标签顺序，不受该按钮影响。
+
 ## 设置
 
 ### `partialDiff.firstTextOnRight`
@@ -41,27 +58,30 @@ Editable diff（`partialDiff.enableEditableDiffs`，默认开启）下，编辑�
 - 默认：`true`
 - 作用：把第一次比较的文字（第一次选择的选区，或剪贴板内容）放在右栏，第二次的文字放在左栏。
 - 设为 `false`：恢复传统的“原文在左、比较文本在右”布局。
+- 按钮：状态栏按钮、diff 标题栏按钮和命令面板都会修改这一项；点击后自动持久化。
 - 说明：为了兼容 VS Code 主进程尚未重新扫描扩展 `package.json` 的情况，代码把“未注册/未设置”也视为开启；只有显式写入 `false` 才关闭。
 
 ## 安装
 
 ### 方式一：安装 VSIX（推荐）
 
-1. 下载仓库根目录的 `Partial-Diff-Clipboard_custom-1.0.2.vsix`。
+1. 下载仓库根目录的 `Partial-Diff-Clipboard_custom-1.0.3.vsix`。
 2. 在 VS Code 中执行 `Extensions: Install from VSIX...`，选择该文件。
 3. 执行 `Developer: Reload Window`。
 
-该构建保留原扩展 ID `heel.partial-diff-clipboard`，安装 1.0.2 会升级/替换已安装的 1.0.1；命令 ID 与设置键保持不变。
+该构建保留原扩展 ID `heel.partial-diff-clipboard`，安装 1.0.3 会升级/替换已安装的 1.0.1 或 1.0.2；命令 ID 与设置键保持不变。
 
 ### 方式二：手动替换已安装目录
 
-将本仓库的 `dist/extension.js` 与 `package.json` 复制到：
+将本仓库的以下三个文件复制到已安装目录：
 
-`%USERPROFILE%\.vscode\extensions\heel.partial-diff-clipboard-1.0.1\dist\extension.js`
+`dist/extension.js` → `%USERPROFILE%\.vscode\extensions\heel.partial-diff-clipboard-1.0.1\dist\extension.js`
 
-`%USERPROFILE%\.vscode\extensions\heel.partial-diff-clipboard-1.0.1\package.json`
+`dist/extension-core.js` → `%USERPROFILE%\.vscode\extensions\heel.partial-diff-clipboard-1.0.1\dist\extension-core.js`
 
-然后执行 `Developer: Reload Window`。如果已安装目录名不同，请以实际目录名为准。
+`package.json` → `%USERPROFILE%\.vscode\extensions\heel.partial-diff-clipboard-1.0.1\package.json`
+
+然后执行 `Developer: Reload Window`。状态栏按钮会立即出现；diff 标题栏按钮由菜单贡献控制，可能需要完整退出并重启 VS Code 才会注册。如果已安装目录名不同，请以实际目录名为准。
 
 ## step010 -- 行为回归测试
 
@@ -74,7 +94,10 @@ Editable diff（`partialDiff.enableEditableDiffs`，默认开启）下，编辑�
 - `Compare Visible Editors` 在普通与 editable 模式下保持物理左右；
 - `partialDiff.firstTextOnRight` 为 `true`、`false`、未注册三种情况；
 - editable diff 左右两侧修改后的回写目标与文本；
-- 剪贴板临时文件只读。
+- 剪贴板临时文件只读；
+- 状态栏按钮的创建、显示文本、命令绑定与点击切换；
+- 切换按钮写入全局设置、状态栏提示、diff 标题栏上下文，以及外部修改设置后按钮自动刷新；
+- 配置键尚未注册、写入被拒绝时，按钮仍通过扩展 `globalState` 记忆并驱动下一次比较。
 
 运行：
 
@@ -88,31 +111,33 @@ node test/step010_test_harness.js
 node test/step010_test_harness.js "D:/path/to/dist/extension.js"
 ```
 
-当前版本共 35 项检查，全部通过。
+当前版本共 59 项检查，全部通过。
 
 ## 构建 VSIX（手工步骤）
 
 1. 准备原始 1.0.1 VSIX 的 OPC 外壳：`[Content_Types].xml` 与 `extension.vsixmanifest`。
-2. 在 `extension.vsixmanifest` 中把 `<Identity ... Version="1.0.1" ... />` 改为 `1.0.2`，把 `<DisplayName>` 改为 `Partial Diff Clipboard_custom`。
-3. 将本仓库的 `package.json`、`changelog.md`、`LICENSE.txt`、`icon.png`、`README.md`、`dist/extension.js` 放入 VSIX 的 `extension/` 目录，并把 `README.md` 在包内命名为 `readme.md`。
-4. 将 `[Content_Types].xml`、`extension.vsixmanifest`、`extension/` 打成一个 ZIP，扩展名改为 `.vsix`，得到 `Partial-Diff-Clipboard_custom-1.0.2.vsix`。
+2. 在 `extension.vsixmanifest` 中把 `<Identity ... Version="1.0.1" ... />` 改为 `1.0.3`，把 `<DisplayName>` 改为 `Partial Diff Clipboard_custom`。
+3. 将本仓库的 `package.json`、`changelog.md`、`LICENSE.txt`、`icon.png`、`README.md`、`dist/extension.js`、`dist/extension-core.js` 放入 VSIX 的 `extension/` 目录，并把 `README.md` 在包内命名为 `readme.md`。
+4. 将 `[Content_Types].xml`、`extension.vsixmanifest`、`extension/` 打成一个 ZIP，扩展名改为 `.vsix`，得到 `Partial-Diff-Clipboard_custom-1.0.3.vsix`。
 
 ## 目录结构
 
-- `dist/extension.js` -- 已修补的扩展入口（webpack bundle）
-- `package.json` -- 扩展清单，新增 `partialDiff.firstTextOnRight`
+- `dist/extension.js` -- 自定义外层入口：状态栏按钮、diff 标题栏按钮命令、切换与持久化逻辑
+- `dist/extension-core.js` -- 原始扩展核心 bundle，已包含左右顺序与标题同步修补
+- `package.json` -- 扩展清单，新增 `partialDiff.firstTextOnRight`、`extension.partialDiff.toggleSideOrder` 命令与 `editor/title` 菜单
 - `changelog.md` -- 变更记录
 - `LICENSE.txt` -- MIT 许可证
 - `icon.png` -- 扩展图标
 - `test/step010_test_harness.js` -- 行为回归测试脚本
-- `Partial-Diff-Clipboard_custom-1.0.2.vsix` -- 可直接安装的构建产物
+- `Partial-Diff-Clipboard_custom-1.0.3.vsix` -- 可直接安装的构建产物
 - `README.md` -- 本文件
 
 ## 修补位置（维护者参考）
 
-- `dist/extension.js` 中的 `takeDiff(e, t)`：当 `partialDiff.firstTextOnRight` 不为 `false` 且文本键为 `reg1`/`reg2` 或 `clipboard`/`reg2` 时，交换左右文本键，再用交换后的顺序生成标题、临时文件和 editable diff 两侧。
-- `dist/extension.js` 中的 `executeDiffUris(e, t, i, r)`：把传给 `_workbench.diff` 的参数改为 `(e, t, i, ...)`，即 `original/左` 在前、`modified/右` 在后。
-- `package.json` 中的 `partialDiff.firstTextOnRight`：新增的顺序偏好配置。
+- `dist/extension-core.js` 中的 `takeDiff(e, t)`：当 `partialDiff.firstTextOnRight` 不为 `false` 且文本键为 `reg1`/`reg2` 或 `clipboard`/`reg2` 时，交换左右文本键，再用交换后的顺序生成标题、临时文件和 editable diff 两侧。
+- `dist/extension-core.js` 中的 `executeDiffUris(e, t, i, r)`：把传给 `_workbench.diff` 的参数改为 `(e, t, i, ...)`，即 `original/左` 在前、`modified/右` 在后。
+- `dist/extension.js`：外层入口，调用 `dist/extension-core.js` 的 `activate` 后注册 `extension.partialDiff.toggleSideOrder`，维护状态栏按钮与 `partialDiff.hasOpenDiff` 上下文。
+- `package.json` 中的 `partialDiff.firstTextOnRight`、`extension.partialDiff.toggleSideOrder` 与 `menus.editor/title`：顺序偏好配置、切换命令与 diff 标题栏按钮。
 
 ## 来源与许可
 
@@ -123,6 +148,7 @@ node test/step010_test_harness.js "D:/path/to/dist/extension.js"
 
 ## 已知限制
 
-- 修改已安装扩展的 `package.json` 后，VS Code 主进程不会因为窗口 reload 而重新扫描配置贡献。本构建已在代码层把“未注册/未设置”视为开启，所以行为不需要依赖配置注册；若要在设置界面看到并切换 `partialDiff.firstTextOnRight`，需要完全退出 VS Code 后重新启动。
-- 安装或替换扩展文件后，必须执行 `Developer: Reload Window`。
+- 修改已安装扩展的 `package.json` 后，VS Code 主进程不会因为窗口 reload 而重新扫描配置贡献。本构建把按钮选择优先保存在扩展的 `globalState`（`context.globalState`），因此即使 `partialDiff.firstTextOnRight` 尚未注册、设置写入被 VS Code 拒绝，按钮仍能记住并驱动下一次比较；设置可写时会同步镜像到用户设置。若要在设置界面看到并切换 `partialDiff.firstTextOnRight`，需要完全退出 VS Code 后重新启动。
+- 安装或替换扩展文件后，必须执行 `Developer: Reload Window`。状态栏按钮在 reload 后即可使用；diff 标题栏按钮由 `editor/title` 菜单贡献控制，可能需要安装 VSIX 或完整重启 VS Code 后才会出现。
+- 切换按钮对下一次比较生效；当前已打开的 diff 不会自动翻转。需要新方向时，关闭当前 diff 后重新执行比较即可。
 - Editable diff 会临时把工作区的 `diffEditor.renderSideBySide` 设为 `true`、`diffEditor.useInlineViewWhenSpaceIsLimited` 设为 `false`，并在相关 diff 关闭后恢复原值。
