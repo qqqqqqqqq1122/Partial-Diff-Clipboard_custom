@@ -52,6 +52,96 @@ function updateTarget() {
 	return vscode.ConfigurationTarget.Global;
 }
 
+const SELECTION_TEXT_KEYS = new Set(['reg1', 'reg2', 'clipboard']);
+
+function textKeyForUri(uri) {
+	if (!uri) { return undefined; }
+	if (uri.scheme === 'partialdiff') {
+		const match = /^text\/([a-z\d]+)/.exec(uri.path);
+		return match ? match[1] : undefined;
+	}
+	if (uri.scheme === 'partialdiff-editable') {
+		const map = globalThis.__partialDiffSessionTextKeys;
+		return map ? map[uri.toString()] : undefined;
+	}
+	return undefined;
+}
+
+function isSelectionOrClipboardDiff(tab) {
+	const input = tab && tab.input;
+	if (!input || !input.original || !input.modified) { return false; }
+	const keys = [textKeyForUri(input.original), textKeyForUri(input.modified)];
+	if (keys.some((key) => SELECTION_TEXT_KEYS.has(key))) { return true; }
+	// After a window reload the core session map can be empty. The clipboard
+	// label is a reliable fallback for the primary Compare with Clipboard flow.
+	return typeof tab.label === 'string' && tab.label.indexOf('Clipboard') !== -1;
+}
+
+function reverseTitle(label) {
+	if (typeof label !== 'string') { return undefined; }
+	for (const separator of [' ↔ ', ' ~ ']) {
+		const index = label.indexOf(separator);
+		if (index > 0) {
+			return label.slice(index + separator.length) + separator + label.slice(0, index);
+		}
+	}
+	return undefined;
+}
+
+function tabMatches(tab, originalUri, modifiedUri) {
+	const input = tab && tab.input;
+	return !!input && !!input.original && !!input.modified
+		&& input.original.toString() === originalUri.toString()
+		&& input.modified.toString() === modifiedUri.toString();
+}
+
+function allTabs() {
+	return vscode.window.tabGroups.all.reduce((tabs, group) => tabs.concat(group.tabs), []);
+}
+
+async function swapActiveDiff() {
+	const group = vscode.window.tabGroups.activeTabGroup;
+	const tab = group && group.activeTab;
+	if (!tab || !isSelectionOrClipboardDiff(tab)) { return false; }
+
+	const input = tab.input;
+	const oldOriginal = input.original;
+	const oldModified = input.modified;
+	if (oldOriginal.toString() === oldModified.toString()) { return false; }
+
+	const newTitle = reverseTitle(tab.label);
+	if (!newTitle) { return false; }
+
+	const newOriginal = oldModified;
+	const newModified = oldOriginal;
+	const editable = newOriginal.scheme === 'partialdiff-editable' || newModified.scheme === 'partialdiff-editable';
+	const column = tab.group ? tab.group.viewColumn : undefined;
+
+	try {
+		if (editable) {
+			await vscode.commands.executeCommand('_workbench.diff', newOriginal, newModified, newTitle, [column, {
+				originalEditable: !String(newOriginal.path).endsWith('-readonly.txt'),
+				renderSideBySide: true,
+				useInlineViewWhenSpaceIsLimited: false,
+			}]);
+		} else {
+			const options = column ? { viewColumn: column } : undefined;
+			await vscode.commands.executeCommand('vscode.diff', newOriginal, newModified, newTitle, options);
+		}
+	} catch (error) {
+		return false;
+	}
+
+	const newTab = allTabs().find((candidate) => candidate !== tab && tabMatches(candidate, newOriginal, newModified));
+	if (!newTab) { return false; }
+
+	const oldStillOpen = allTabs().some((candidate) => tabMatches(candidate, oldOriginal, oldModified));
+	if (oldStillOpen) {
+		try { await vscode.window.tabGroups.close(tab); } catch (error) { /* ignore */ }
+	}
+	return true;
+}
+
 function isOurDiffTab(tab) {
 	const input = tab && tab.input;
 	if (!input) { return false; }
@@ -97,13 +187,18 @@ function activate(context) {
 		const oldOnRight = isOldTextOnRight();
 		statusBar.text = oldOnRight ? '$(arrow-swap) 旧→右' : '$(arrow-swap) 旧→左';
 		statusBar.tooltip = oldOnRight
-			? 'PartialDiff：第一次复制/选择的文字（旧）在右，当前选区（新）在左。点击切换，对下一次比较生效。'
-			: 'PartialDiff：第一次复制/选择的文字（旧）在左，当前选区（新）在右。点击切换，对下一次比较生效。';
+			? 'PartialDiff：第一次复制/选择的文字（旧）在右，当前选区（新）在左。点击切换；当前是选区/剪贴板 diff 时会立即翻转。'
+			: 'PartialDiff：第一次复制/选择的文字（旧）在左，当前选区（新）在右。点击切换；当前是选区/剪贴板 diff 时会立即翻转。';
 		statusBar.show();
 	}
 
 	context.subscriptions.push(
 		vscode.commands.registerCommand(TOGGLE_COMMAND, async () => {
+			const activeGroup = vscode.window.tabGroups.activeTabGroup;
+			const activeTab = activeGroup && activeGroup.activeTab;
+			const activeIsOurDiff = isOurDiffTab(activeTab);
+			const activeIsSelectionDiff = isSelectionOrClipboardDiff(activeTab);
+
 			const next = !isOldTextOnRight();
 			globalThis.__partialDiffFirstTextOnRight = next;
 			await context.globalState.update(STATE_KEY, next);
@@ -118,11 +213,19 @@ function activate(context) {
 				// The globalState value above keeps the toggle working in the meantime.
 			}
 
+			const swapped = await swapActiveDiff();
 			refreshStatusBar();
+
+			let suffix;
+			if (swapped) {
+				suffix = '（当前 diff 已翻转）';
+			} else if (activeIsOurDiff && !activeIsSelectionDiff) {
+				suffix = '（当前 diff 为可见/打开的编辑器比较，保持原顺序）';
+			} else {
+				suffix = synced ? '（已保存，下一次比较生效）' : '（已记住，下一次比较生效）';
+			}
 			vscode.window.setStatusBarMessage(
-				next
-					? (synced ? 'PartialDiff：旧→右 / 新→左（已保存，下一次比较生效）' : 'PartialDiff：旧→右 / 新→左（已记住，下一次比较生效）')
-					: (synced ? 'PartialDiff：旧→左 / 新→右（已保存，下一次比较生效）' : 'PartialDiff：旧→左 / 新→右（已记住，下一次比较生效）'),
+				(next ? 'PartialDiff：旧→右 / 新→左' : 'PartialDiff：旧→左 / 新→右') + suffix,
 				3000
 			);
 		})

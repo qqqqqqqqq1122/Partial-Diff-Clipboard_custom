@@ -1,8 +1,8 @@
 {
 	"name": "partial-diff-clipboard",
 	"displayName": "Partial Diff Clipboard_custom",
-	"description": "Custom build of Partial Diff Clipboard. Compare text selections within a file, across files, or against clipboard content. A status bar button switches whether the first copied/selected text goes on the right or left, remembers the choice, and keeps diff titles aligned with the panes.",
-	"version": "1.0.3",
+	"description": "Custom build of Partial Diff Clipboard. Compare text selections within a file, across files, or against clipboard content. A status bar button switches whether the first copied/selected text goes on the right or left, flips the currently open selection/clipboard diff immediately, remembers the choice, and keeps diff titles aligned with the panes.",
+	"version": "1.0.4",
 	"publisher": "heel",
 	"engines": {
 		"vscode": "^1.99.0"

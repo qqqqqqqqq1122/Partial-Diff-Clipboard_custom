@@ -129,6 +129,23 @@ const commands = {
 	executeCommand(...args) {
 		state.executeCalls.push(args);
 		if (args[0] === 'setContext') { state.contexts[args[1]] = args[2]; }
+		if (args[0] === '_workbench.diff' || args[0] === 'vscode.diff') {
+			const original = args[1];
+			const modified = args[2];
+			const title = args[3];
+			if (original && modified && title !== undefined) {
+				let group = windowMock.tabGroups.activeTabGroup;
+				if (!group || !group.tabs) {
+					group = { viewColumn: 1, tabs: [], activeTab: undefined };
+					windowMock.tabGroups.all = [group];
+					windowMock.tabGroups.activeTabGroup = group;
+				}
+				if (!windowMock.tabGroups.all.includes(group)) { windowMock.tabGroups.all.push(group); }
+				const tab = { label: title, input: { original, modified }, group };
+				group.tabs.push(tab);
+				group.activeTab = tab;
+			}
+		}
 		return Promise.resolve(undefined);
 	},
 };
@@ -192,9 +209,22 @@ const windowMock = {
 	visibleTextEditors: [],
 	tabGroups: {
 		all: [],
-		activeTabGroup: { activeTab: undefined },
+		activeTabGroup: { viewColumn: 1, tabs: [], activeTab: undefined },
 		onDidChangeTabs(cb) { state.tabsListeners.push(cb); return { dispose() {} }; },
-		close() { return Promise.resolve(true); },
+		close(tab) {
+			for (const group of windowMock.tabGroups.all) {
+				const index = group.tabs.indexOf(tab);
+				if (index !== -1) {
+					group.tabs.splice(index, 1);
+					if (group.activeTab === tab) { group.activeTab = group.tabs[group.tabs.length - 1]; }
+				}
+			}
+			windowMock.tabGroups.all = windowMock.tabGroups.all.filter((group) => group.tabs.length > 0);
+			if (!windowMock.tabGroups.all.includes(windowMock.tabGroups.activeTabGroup)) {
+				windowMock.tabGroups.activeTabGroup = windowMock.tabGroups.all[0] || { viewColumn: 1, tabs: [], activeTab: undefined };
+			}
+			return Promise.resolve(true);
+		},
 	},
 	onDidChangeWindowState() { return { dispose() {} }; },
 	onDidChangeVisibleTextEditors() { return { dispose() {} }; },
@@ -447,6 +477,101 @@ function checkTrue(label, actual) { check(label, !!actual, true); }
 	check('F clipboard temp is read-only', /-readonly\.txt$/.test(rightUri2.path), true);
 	check('F editable clipboard title', call[3], 'editor.txt (l.1) \u2194 Clipboard');
 
+	// ---------- Test I: toggle immediately reverses the active editable diff ----------
+	check('I session map for left temp', globalThis.__partialDiffSessionTextKeys[leftUri.toString()], 'reg2');
+	check('I session map for right temp', globalThis.__partialDiffSessionTextKeys[rightUri.toString()], 'reg1');
+
+	const oldTab = {
+		label: 'second.txt (l.1) \u2194 first.txt (l.1)',
+		input: { original: leftUri, modified: rightUri },
+	};
+	const oldGroup = { viewColumn: 1, tabs: [oldTab], activeTab: oldTab };
+	oldTab.group = oldGroup;
+	windowMock.tabGroups.all = [oldGroup];
+	windowMock.tabGroups.activeTabGroup = oldGroup;
+	state.executeCalls.length = 0;
+	state.statusMessages.length = 0;
+
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('I preference toggled to old-on-left', state.config.partialDiff.firstTextOnRight, false);
+	const iCall = lastCall('_workbench.diff');
+	checkTrue('I reversed diff opened', iCall !== null);
+	check('I new left is the old right', iCall[1].toString(), rightUri.toString());
+	check('I new right is the old left', iCall[2].toString(), leftUri.toString());
+	check('I reversed title', iCall[3], 'first.txt (l.1) \u2194 second.txt (l.1)');
+	const iTabs = windowMock.tabGroups.all.reduce((tabs, group) => tabs.concat(group.tabs), []);
+	check('I only the reversed tab remains', iTabs.length, 1);
+	check('I remaining tab title', iTabs[0].label, 'first.txt (l.1) \u2194 second.txt (l.1)');
+	check('I remaining tab original', iTabs[0].input.original.toString(), rightUri.toString());
+	check('I remaining tab modified', iTabs[0].input.modified.toString(), leftUri.toString());
+	checkTrue('I immediate swap message', state.statusMessages.some((message) => message.includes('\u5f53\u524d diff \u5df2\u7ffb\u8f6c')));
+
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('I preference restored to old-on-right', state.config.partialDiff.firstTextOnRight, true);
+	const i2Tabs = windowMock.tabGroups.all.reduce((tabs, group) => tabs.concat(group.tabs), []);
+	check('I round-trip leaves one tab', i2Tabs.length, 1);
+	check('I round-trip title', i2Tabs[0].label, 'second.txt (l.1) \u2194 first.txt (l.1)');
+	check('I round-trip original', i2Tabs[0].input.original.toString(), leftUri.toString());
+	check('I round-trip modified', i2Tabs[0].input.modified.toString(), rightUri.toString());
+
+	// ---------- Test J: toggle immediately reverses a non-editable clipboard diff ----------
+	const clipUri = Uri.parse('partialdiff:text/clipboard?_ts=1');
+	const editorUri = Uri.parse('partialdiff:text/reg2?_ts=1');
+	const jOldTab = {
+		label: 'editor.txt (l.1) \u2194 Clipboard',
+		input: { original: editorUri, modified: clipUri },
+	};
+	const jGroup = { viewColumn: 1, tabs: [jOldTab], activeTab: jOldTab };
+	jOldTab.group = jGroup;
+	windowMock.tabGroups.all = [jGroup];
+	windowMock.tabGroups.activeTabGroup = jGroup;
+	state.executeCalls.length = 0;
+	state.statusMessages.length = 0;
+
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('J preference toggled to old-on-left', state.config.partialDiff.firstTextOnRight, false);
+	const jCall = lastCall('vscode.diff');
+	checkTrue('J reversed diff opened', jCall !== null);
+	check('J new left is the clipboard', jCall[1].toString(), clipUri.toString());
+	check('J new right is the editor', jCall[2].toString(), editorUri.toString());
+	check('J reversed title', jCall[3], 'Clipboard \u2194 editor.txt (l.1)');
+	const jTabs = windowMock.tabGroups.all.reduce((tabs, group) => tabs.concat(group.tabs), []);
+	check('J only the reversed tab remains', jTabs.length, 1);
+	check('J remaining tab title', jTabs[0].label, 'Clipboard \u2194 editor.txt (l.1)');
+
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('J preference restored', state.config.partialDiff.firstTextOnRight, true);
+	const j2Tabs = windowMock.tabGroups.all.reduce((tabs, group) => tabs.concat(group.tabs), []);
+	check('J round-trip title', j2Tabs[0].label, 'editor.txt (l.1) \u2194 Clipboard');
+	check('J round-trip original', j2Tabs[0].input.original.toString(), editorUri.toString());
+	check('J round-trip modified', j2Tabs[0].input.modified.toString(), clipUri.toString());
+
+	// ---------- Test K: visible-editor diffs keep their order ----------
+	const vLeftUri = Uri.parse('partialdiff:text/visible1?_ts=1');
+	const vRightUri = Uri.parse('partialdiff:text/visible2?_ts=1');
+	const kOldTab = {
+		label: 'left-pane.txt \u2194 right-pane.txt',
+		input: { original: vLeftUri, modified: vRightUri },
+	};
+	const kGroup = { viewColumn: 1, tabs: [kOldTab], activeTab: kOldTab };
+	kOldTab.group = kGroup;
+	windowMock.tabGroups.all = [kGroup];
+	windowMock.tabGroups.activeTabGroup = kGroup;
+	state.executeCalls.length = 0;
+	state.statusMessages.length = 0;
+
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('K preference still toggles', state.config.partialDiff.firstTextOnRight, false);
+	check('K no public diff reopened', lastCall('vscode.diff'), null);
+	check('K no editable diff reopened', lastCall('_workbench.diff'), null);
+	check('K tab unchanged', windowMock.tabGroups.all[0].tabs.length, 1);
+	check('K tab title unchanged', windowMock.tabGroups.all[0].tabs[0].label, 'left-pane.txt \u2194 right-pane.txt');
+	checkTrue('K message explains visible-editor order', state.statusMessages.some((message) => message.includes('\u53ef\u89c1/\u6253\u5f00\u7684\u7f16\u8f91\u5668\u6bd4\u8f83')));
+
+	await invoke('extension.partialDiff.toggleSideOrder');
+	check('K preference restored', state.config.partialDiff.firstTextOnRight, true);
+	state.configListeners.forEach((cb) => cb({ affectsConfiguration: (key) => key === 'partialDiff.firstTextOnRight' }));
+
 	// ---------- Test G: edit the LEFT pane -> applies back to SECOND source ----------
 	state.appliedEdits.length = 0;
 	fsProvider.writeFile(leftUri, Buffer.from('EDITED SECOND', 'utf8'), { create: false, overwrite: true });
@@ -476,6 +601,8 @@ function checkTrue(label, actual) { check(label, !!actual, true); }
 	// ---------- Test W4: memory still works when the setting key is rejected ----------
 	// This mirrors the real state until VS Code fully restarts and registers the
 	// new configuration key: config.update throws ERROR_UNKNOWN_KEY.
+	windowMock.tabGroups.all = [];
+	windowMock.tabGroups.activeTabGroup = { viewColumn: 1, tabs: [], activeTab: undefined };
 	state.failConfigUpdates = true;
 	const settingBefore = state.config.partialDiff.firstTextOnRight;
 	await invoke('extension.partialDiff.toggleSideOrder');
